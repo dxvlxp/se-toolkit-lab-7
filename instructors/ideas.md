@@ -24,6 +24,7 @@
   - [Lab 5 - DONE - Repository](#lab-5---done---repository)
   - [Lab 5 - DONE - Conventions](#lab-5---done---conventions)
   - [Lab 5 - DONE - Skills](#lab-5---done---skills)
+  - [Lab 5 - DONE - Instructors](#lab-5---done---instructors)
 - [Lab Observability - TODO](#lab-observability---todo)
   - [Lab Observability - TODO - Backlog](#lab-observability---todo---backlog)
   - [Lab Telegram Bot - TODO - Task 2](#lab-telegram-bot---todo---task-2)
@@ -44,6 +45,7 @@
 
 - agents.md
 - remember to use .agents
+- switch to pnpm
 
 ### Lab 5 - TODO - Conventions
 
@@ -88,7 +90,6 @@
 ### Lab 5 - TODO - Skills
 
 - fix adjacent links
-- don't use claude-specific words in skills
 - skill /issue
 - skill: review lab
   - run /review-file in parallel on tasks
@@ -104,9 +105,7 @@
   
 ### Lab 5 - TODO - Instructors
 
-- goal: interact with the database, not just observe
-- Rename instructors/lab-design to instructors/meetings
-- Use instructors/meetings just for storing meeting notes, not for the lab design.
+- add tutorials for skills and devshell tools
 
 ### Lab 5 - TODO - Wiki
 
@@ -123,7 +122,10 @@
   Need browser flow for free requests
   Therefore, will have to run on the laptop and connect by ssh
 - coding-agents.md - select lines and ask questions
-
+- move to contributing/configuration:
+  - dotenv-docker-secret.md and others
+  - pyproject-toml.md
+  
 ### Lab 5 - TODO - Docs
 
 - GitHub Pages with good full-text search
@@ -222,6 +224,13 @@
   - bundle all instructions for task 1 in a readable doc
   
   Solution: We'll add a skill that explains a particular step.
+
+### Lab 5 - DONE - Instructors
+
+- Rename instructors/lab-design to instructors/meetings
+- Use instructors/meetings just for storing meeting notes, not for the lab design.
+- Check qwen works on a VM.
+  it does if you copy the credentials
 
 ## Lab Observability - TODO
 
