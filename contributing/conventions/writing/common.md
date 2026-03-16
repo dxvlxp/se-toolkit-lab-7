@@ -29,6 +29,7 @@
 - [4.27. Troubleshooting sections](#427-troubleshooting-sections)
 - [4.28. JSON command output](#428-json-command-output)
 - [4.29. Referring to users of a machine](#429-referring-to-users-of-a-machine)
+- [4.30. Section titles with execution context](#430-section-titles-with-execution-context)
 
 ## 4.1. Instructions wording
 
@@ -513,3 +514,18 @@ From a task file:
 [the user `root`](../../../wiki/linux.md#the-user-root)
 [the user `<user>`](../../../wiki/operating-system.md#user-placeholder)
 ```
+
+## 4.30. Section titles with execution context
+
+When a section contains commands that run on a specific machine, append `(REMOTE)` or `(LOCAL)` to the section title to indicate where the commands should be run:
+
+- `(REMOTE)` — commands run on a remote machine (e.g., a VM accessed via `SSH`).
+- `(LOCAL)` — commands run on the local machine (e.g., the student's own computer).
+
+```markdown
+## Connect to the VM (LOCAL)
+
+## Configure the firewall (REMOTE)
+```
+
+Omit the suffix when the section contains no commands, or when the execution context is unambiguous from the surrounding content (e.g., a file that exclusively covers remote or local operations).
