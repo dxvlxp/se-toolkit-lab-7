@@ -354,7 +354,7 @@ Complete these steps:
 > [!NOTE]
 > Replace [`<user>`](./operating-system.md#user-placeholder) with the actual [username](./operating-system.md#username).
 
-1. To create the `.ssh/` directory for the user `<user>`,
+1. To create the `.ssh/` directory for the [user](./operating-system.md#user) `<user>`,
 
    [run in the `VS Code Terminal`](./vs-code.md#run-a-command-in-the-vs-code-terminal):
 
