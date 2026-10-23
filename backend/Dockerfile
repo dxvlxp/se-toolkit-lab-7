@@ -6,7 +6,9 @@
 # ---
 
 ARG REGISTRY_PREFIX=harbor.pg.innopolis.university/docker-hub-cache/
-FROM ${REGISTRY_PREFIX}astral/uv:python3.14-bookworm-slim AS builder
+FROM ${REGISTRY_PREFIX}astral/uv:0.12.23 AS uv
+FROM ${REGISTRY_PREFIX}python:3.14.2-slim-bookworm AS builder
+COPY --from=uv /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
 # Omit development dependencies
@@ -23,9 +25,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=backend/pyproject.toml,target=backend/pyproject.toml \
+    --mount=type=bind,source=bot/pyproject.toml,target=bot/pyproject.toml \
     uv sync --locked --no-install-project
 
 COPY backend /app/backend
+COPY bot/pyproject.toml /app/bot/pyproject.toml
 COPY pyproject.toml uv.lock /app/
 
 RUN --mount=type=cache,target=/root/.cache/uv \

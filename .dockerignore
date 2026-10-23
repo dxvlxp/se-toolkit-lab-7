@@ -16,6 +16,13 @@ venv/
 .vscode/
 
 .env
+*.secret
+**/*.secret
+**/.env
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+bot/tests/
 
 tests/
 docs/

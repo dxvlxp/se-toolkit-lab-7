@@ -95,3 +95,102 @@ By the end of this lab, you should be able to say:
 ### Optional
 
 1. [Flutter Web Chatbot](./lab/tasks/optional/task-1.md)
+
+## Bot architecture and local verification
+
+The bot uses the Telegram Bot HTTP API for long polling. `bot/bot.py` handles
+Telegram messages and inline callbacks; `bot/handlers/commands.py` contains the
+same command logic used by both Telegram and CLI mode. `bot/services/` contains
+the authenticated LMS client, the OpenAI-compatible LLM client, and nine tool
+schemas. Natural-language requests always go to the LLM, which selects tools;
+tool results are fed back into the model for its final answer.
+
+Commands: `/start`, `/help`, `/health`, `/labs`, and `/scores lab-04`.
+The scores endpoint returns task averages and attempt counts; these averages
+are distinct from the percentage of learners who passed. The completion tool
+reports the backend's completion percentage.
+
+Create `.env.bot.secret` from `.env.bot.example` in the repository root.
+Set `LMS_API_BASE_URL`, `LMS_API_KEY`, `LLM_API_BASE_URL`, `LLM_API_KEY`, and
+`LLM_API_MODEL`. `BOT_TOKEN` is required only for Telegram mode. Environment
+variables take precedence over the secret file; example files are never loaded
+as credentials. Keep secrets out of Git and PR descriptions.
+
+```sh
+cd bot
+uv sync --locked --no-dev
+uv run --locked bot.py --test "/start"
+uv run --locked bot.py --test "/health"
+uv run --locked bot.py --test "/labs"
+uv run --locked bot.py --test "/scores lab-04"
+uv run --locked bot.py --test "which lab has the lowest average score?"
+uv run --locked python -m unittest discover -s tests -v
+```
+
+The automated bot tests use controlled backend and LLM responses. They cover
+request paths, Bearer authentication, formatting, invalid input, HTTP/network
+failures, multi-round tool calls, callback handling, and message splitting.
+They do not establish that your real services or Telegram bot are available.
+Responses go to stdout in `--test` mode; tool-call diagnostics go to stderr.
+Natural-language requests allow up to 12 model rounds and 64 tool calls.
+If a model/service fails, the bot returns an error with a slash-command hint.
+
+## Deploy on the VM
+
+Complete the [lab setup](./lab/setup/setup-simple.md) first, including populating
+the backend and setting up the LLM proxy. Clone this fork to
+`~/se-toolkit-lab-7`, or pull the reviewed changes there. Use Python 3.14.2 and uv
+for host execution. Docker installs the matching interpreter and dependencies.
+
+Create `.env.docker.secret` from `.env.docker.example`. Fill in the backend,
+database, and autochecker credentials described in setup, plus these bot values:
+
+| Variable | Meaning |
+| --- | --- |
+| `BOT_TOKEN` | Telegram token from BotFather |
+| `LMS_API_KEY` | Same Bearer key used by the backend |
+| `LLM_API_KEY` | Key accepted by the LLM proxy/provider |
+| `LLM_API_MODEL` | Model supported by that provider, e.g. `coder-model` |
+| `BOT_LLM_API_BASE_URL` | Container-reachable chat API base URL, including `/v1` if required |
+
+Compose sets the bot's LMS URL to `http://backend:8000` (or the configured
+backend container port). `localhost` inside a container refers to that container.
+For the host Qwen proxy, the default bot LLM URL is
+`http://host.docker.internal:42005/v1`; Compose maps that hostname to the host
+gateway. The proxy must listen on an interface reachable from Docker. If it is
+bound only to host loopback, configure its binding/network before using this URL.
+For an external provider set `BOT_LLM_API_BASE_URL` to its HTTPS API base URL.
+Host CLI mode still uses `LMS_API_BASE_URL` and `LLM_API_BASE_URL` from
+`.env.bot.secret`, usually `http://localhost:42002` and
+`http://localhost:42005/v1` respectively.
+
+Stop any previous host bot process before starting the container to avoid two
+polling sessions for the same Telegram token. Then run from the repository root:
+
+```sh
+docker compose --env-file .env.docker.secret config --quiet
+docker compose --env-file .env.docker.secret up --build -d
+docker compose --env-file .env.docker.secret ps
+docker compose --env-file .env.docker.secret logs bot --tail 30
+docker compose --env-file .env.docker.secret exec bot /app/.venv/bin/python bot.py --test "/health"
+docker compose --env-file .env.docker.secret exec bot /app/.venv/bin/python bot.py --test "/scores lab-04"
+curl -fsS http://localhost:42002/docs > /dev/null
+```
+
+The bot container runs as an unprivileged user and restarts unless stopped.
+Both image builds use the committed root `uv.lock`. The backend build includes
+both workspace manifests so uv can validate that lockfile. Secret files are
+excluded from the Docker build context; Compose supplies runtime credentials.
+
+Verify `/start`, `/health`, `/labs`, `/scores lab-04`, inline buttons, and
+natural-language lab comparisons in Telegram. Check that the log contains
+`Application started` and `[tool]` entries when tools run. Verify the missing
+argument and unknown-command cases as well. After temporarily stopping the
+backend, `/health` should return its actual connection error without a traceback;
+restart the backend afterward.
+
+If startup fails, inspect the bot log: HTTP 401 indicates credentials need
+checking, HTTP 409 from Telegram can indicate another poller, connection failures
+indicate a URL/network problem, and empty lab results usually require ETL sync.
+Do not mark VM or Telegram acceptance checks complete until you have actually
+run them. Each task still needs a classmate's PR review before merging to `main`.
