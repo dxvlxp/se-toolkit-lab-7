@@ -1,0 +1,24 @@
+name: Bot tests
+
+on:
+  push:
+    branches: [main, restart/lab-7]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: python:3.14.2-slim-bookworm
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Install pinned uv
+        run: python -m pip install uv==0.12.23
+      - name: Install locked bot dependencies
+        run: uv sync --locked --no-dev --package lms-bot
+      - name: Run bot tests
+        run: .venv/bin/python -m unittest discover -s bot/tests -v
+      - name: Verify CLI without Telegram
+        run: .venv/bin/python bot/bot.py --test "/start"

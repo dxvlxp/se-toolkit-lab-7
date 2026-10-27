@@ -1,4 +1,1 @@
-from .lms_client import LMSClient
-from .llm_client import LLMClient
-
-__all__ = ["LMSClient", "LLMClient"]
+"""Clients for external LMS and language-model services."""

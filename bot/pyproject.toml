@@ -1,12 +1,9 @@
 [project]
-name = "se-toolkit-lab-7-bot"
+name = "lms-bot"
 version = "0.1.0"
-description = "Telegram bot scaffold for SE Toolkit Lab 7"
-requires-python = ">=3.12"
-dependencies = [
-    "httpx>=0.27,<1.0",
-    "python-dotenv>=1.0,<2.0",
-]
+description = "LMS Telegram Bot"
+requires-python = "==3.14.2"
+dependencies = ["httpx==0.28.1", "python-dotenv==1.2.1"]
 
 [tool.uv]
 package = false

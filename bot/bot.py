@@ -1,190 +1,173 @@
-from __future__ import annotations
+"""Run the LMS bot using Telegram long polling or a Telegram-free CLI."""
 
 import argparse
 import logging
 import sys
 import time
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
 from config import BotConfig, get_config
 from handlers import CommandContext, route_text
-from services import LLMClient, LMSClient
+from services.llm_client import LLMClient
+from services.lms_client import LMSClient
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+logger = logging.getLogger(__name__)
+KEYBOARD = {
+    "inline_keyboard": [
+        [
+            {"text": "Health", "callback_data": "/health"},
+            {"text": "Labs", "callback_data": "/labs"},
+            {"text": "Help", "callback_data": "/help"},
+        ]
+    ]
+}
+
+
+class TelegramError(Exception):
+    """A Telegram failure that excludes the token-bearing request URL."""
 
 
 def build_context(config: BotConfig) -> CommandContext:
     return CommandContext(
-        config=config,
-        lms_client=LMSClient(
-            base_url=config.lms_api_base_url,
-            api_key=config.lms_api_key,
-        ),
-        llm_client=LLMClient(
-            model=config.llm_api_model,
-            api_key=config.llm_api_key,
-            base_url=config.llm_api_base_url,
+        lms=LMSClient(config.lms_api_base_url, config.lms_api_key),
+        llm=LLMClient(
+            config.llm_api_base_url, config.llm_api_key, config.llm_api_model
         ),
     )
 
 
-def run_test_mode(raw_input: str) -> int:
-    config = get_config(require_bot_token=False)
-    context = build_context(config)
-    response = route_text(context, raw_input)
-    print(response)
-    return 0
+def telegram_call(config: BotConfig, method: str, payload: dict[str, Any]) -> Any:
+    try:
+        with httpx.Client(timeout=httpx.Timeout(45, connect=10)) as client:
+            response = client.post(
+                f"https://api.telegram.org/bot{config.bot_token}/{method}", json=payload
+            )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise TelegramError("Telegram returned an invalid response")
+        data = cast(dict[str, Any], data)
+        if not data.get("ok"):
+            raise TelegramError("Telegram rejected the request")
+        return data.get("result")
+    except httpx.HTTPStatusError as exc:
+        raise TelegramError(f"Telegram HTTP {exc.response.status_code}") from None
+    except httpx.RequestError:
+        raise TelegramError(
+            "Telegram network request failed; check connectivity"
+        ) from None
+    except ValueError:
+        raise TelegramError("Telegram returned invalid JSON") from None
 
 
-def telegram_api_request(
-    config: BotConfig,
-    method: str,
-    payload: dict[str, Any],
-    *,
-    timeout_seconds: float,
-) -> dict[str, Any]:
-    url = f"{config.telegram_api_base}/{method}"
-    timeout = httpx.Timeout(timeout_seconds, connect=10.0)
-
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(url, json=payload)
-
-    response.raise_for_status()
-    data = response.json()
-
-    if not isinstance(data, dict):
-        raise RuntimeError(f"Telegram API returned unexpected payload: {data!r}")
-
-    if not data.get("ok", False):
-        raise RuntimeError(f"Telegram API error: {data!r}")
-
-    return data
-
-
-def get_updates(config: BotConfig, offset: int | None) -> list[dict[str, Any]]:
-    payload: dict[str, Any] = {
-        "timeout": 60,
-        "allowed_updates": ["message"],
-    }
-    if offset is not None:
-        payload["offset"] = offset
-
-    data = telegram_api_request(
-        config,
-        "getUpdates",
-        payload,
-        timeout_seconds=70.0,
-    )
-    result = data.get("result", [])
-
-    if not isinstance(result, list):
-        return []
-
-    safe_result: list[dict[str, Any]] = []
-    for item in result:
-        if isinstance(item, dict):
-            safe_result.append(item)
-    return safe_result
-
-
-def send_message(config: BotConfig, chat_id: int, text: str) -> None:
-    telegram_api_request(
-        config,
-        "sendMessage",
-        {
-            "chat_id": chat_id,
-            "text": text,
-            "disable_web_page_preview": True,
-        },
-        timeout_seconds=15.0,
-    )
+def send_reply(config: BotConfig, chat_id: int, text: str) -> None:
+    # A conservative UTF-16 budget keeps emoji-heavy messages within Telegram limits.
+    chunks: list[str] = []
+    current: list[str] = []
+    units = 0
+    for character in text:
+        width = 2 if ord(character) > 0xFFFF else 1
+        if units + width > 3500:
+            chunks.append("".join(current))
+            current, units = [], 0
+        current.append(character)
+        units += width
+    if current:
+        chunks.append("".join(current))
+    for index, chunk in enumerate(chunks):
+        payload: dict[str, Any] = {"chat_id": chat_id, "text": chunk}
+        if index == len(chunks) - 1:
+            payload["reply_markup"] = KEYBOARD
+        telegram_call(config, "sendMessage", payload)
 
 
 def handle_update(
-    config: BotConfig,
-    context: CommandContext,
-    update: dict[str, Any],
+    config: BotConfig, context: CommandContext, update: dict[str, Any]
 ) -> None:
-    message = update.get("message")
-    if not isinstance(message, dict):
+    callback = update.get("callback_query")
+    if isinstance(callback, dict):
+        callback = cast(dict[str, Any], callback)
+        if not isinstance(callback.get("id"), str):
+            return
+        telegram_call(
+            config, "answerCallbackQuery", {"callback_query_id": callback["id"]}
+        )
+        message = callback.get("message", {})
+        text = callback.get("data", "")
+        if not isinstance(text, str) or text not in {"/health", "/labs", "/help"}:
+            return
+    else:
+        message = update.get("message", {})
+        text = (
+            cast(dict[str, Any], message).get("text", "")
+            if isinstance(message, dict)
+            else ""
+        )
+    if not isinstance(message, dict) or not isinstance(text, str) or not text:
         return
-
-    text = message.get("text")
-    chat = message.get("chat")
-
-    if not isinstance(text, str):
-        return
-    if not isinstance(chat, dict):
-        return
-
-    chat_id = chat.get("id")
-    if not isinstance(chat_id, int):
-        return
-
-    response_text = route_text(context, text)
-    send_message(config, chat_id, response_text)
+    chat = cast(dict[str, Any], message).get("chat", {})
+    chat_id = cast(dict[str, Any], chat).get("id") if isinstance(chat, dict) else None
+    if isinstance(chat_id, int):
+        send_reply(config, chat_id, route_text(context, text))
 
 
-def run_telegram_mode() -> int:
-    config = get_config(require_bot_token=True)
-    context = build_context(config)
-
-    logging.info("Bot started in Telegram mode")
-    offset: int | None = None
-
-    try:
-        while True:
-            try:
-                updates = get_updates(config, offset)
-
-                for update in updates:
-                    update_id = update.get("update_id")
-                    if isinstance(update_id, int):
-                        offset = update_id + 1
-
-                    handle_update(config, context, update)
-
-            except httpx.HTTPError:
-                logging.exception("HTTP error while polling Telegram")
-                time.sleep(3)
-            except Exception:
-                logging.exception("Unexpected error while polling Telegram")
-                time.sleep(3)
-    except KeyboardInterrupt:
-        logging.info("Bot stopped")
-        return 0
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="SE Toolkit Lab 7 bot scaffold",
-    )
-    parser.add_argument(
-        "--test",
-        nargs="?",
-        const="/start",
-        metavar="TEXT",
-        help='Run bot in local test mode, e.g. --test "/start"',
-    )
-    return parser.parse_args()
+def run_telegram(config: BotConfig, context: CommandContext) -> None:
+    telegram_call(config, "getMe", {})
+    logger.info("Application started")
+    offset = 0
+    while True:
+        try:
+            updates = telegram_call(
+                config,
+                "getUpdates",
+                {
+                    "timeout": 30,
+                    "offset": offset,
+                    "allowed_updates": ["message", "callback_query"],
+                },
+            )
+            if not isinstance(updates, list):
+                raise TelegramError("Telegram returned an invalid updates list")
+            for update in cast(list[Any], updates):
+                if not isinstance(update, dict):
+                    continue
+                update = cast(dict[str, Any], update)
+                update_id = update.get("update_id")
+                if not isinstance(update_id, int):
+                    continue
+                # Advance after handling. A transient failure is retried on the next poll.
+                handle_update(config, context, update)
+                offset = update_id + 1
+        except TelegramError as exc:
+            logger.warning("%s", exc)
+            time.sleep(3)
 
 
 def main() -> int:
-    args = parse_args()
-
+    parser = argparse.ArgumentParser(description="LMS Telegram bot")
+    parser.add_argument(
+        "--test", metavar="TEXT", help="Run one request without Telegram"
+    )
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    # HTTP logs contain Telegram request URLs, so keep third-party HTTP logging quiet.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
+        config = get_config(require_bot_token=args.test is None)
+        context = build_context(config)
         if args.test is not None:
-            return run_test_mode(args.test)
-        return run_telegram_mode()
-    except ValueError as exc:
+            print(route_text(context, args.test))
+        else:
+            run_telegram(config, context)
+        return 0
+    except (ValueError, TelegramError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        return 0
 
 
 if __name__ == "__main__":
